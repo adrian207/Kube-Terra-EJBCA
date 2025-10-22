@@ -1,0 +1,52 @@
+hostname,owner_email,owner_team,environment,cost_center,location,os,status,notes
+webapp01.contoso.com,web-apps@contoso.com,team-web-apps,production,12345,US-East,Linux,active,Primary web application server
+webapp02.contoso.com,web-apps@contoso.com,team-web-apps,production,12345,US-West,Linux,active,Secondary web application server (HA pair)
+webapp01-dev.contoso.com,web-apps@contoso.com,team-web-apps,dev,12345,US-East,Linux,active,Development web server
+webapp01-test.contoso.com,web-apps@contoso.com,team-web-apps,test,12345,US-East,Linux,active,Test environment web server
+api01.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Primary API gateway
+api02.contoso.com,platform@contoso.com,team-platform,production,12346,US-West,Linux,active,Secondary API gateway
+api01-dev.contoso.com,platform@contoso.com,team-platform,dev,12346,US-East,Linux,active,Development API server
+db01.contoso.com,data@contoso.com,team-data,production,12347,US-East,Linux,active,Primary PostgreSQL database
+db02.contoso.com,data@contoso.com,team-data,production,12347,US-West,Linux,active,Secondary PostgreSQL database (read replica)
+db01-dev.contoso.com,data@contoso.com,team-data,dev,12347,US-East,Linux,active,Development database server
+cache01.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Redis cache cluster node 1
+cache02.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Redis cache cluster node 2
+cache03.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Redis cache cluster node 3
+lb01.contoso.com,network@contoso.com,team-network,production,12348,US-East,F5 BIG-IP,active,Primary load balancer
+lb02.contoso.com,network@contoso.com,team-network,production,12348,US-West,F5 BIG-IP,active,Secondary load balancer
+vpn01.contoso.com,network@contoso.com,team-network,production,12348,US-East,Palo Alto,active,VPN concentrator
+firewall01.contoso.com,security@contoso.com,team-security,production,12349,US-East,Palo Alto,active,Perimeter firewall
+fileserver01.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-East,Windows Server 2022,active,Primary file server
+fileserver02.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-West,Windows Server 2022,active,Secondary file server
+ad01.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-East,Windows Server 2022,active,Active Directory domain controller 1
+ad02.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-West,Windows Server 2022,active,Active Directory domain controller 2
+exchange01.contoso.com,messaging@contoso.com,team-messaging,production,12351,US-East,Windows Server 2022,active,Exchange mail server
+sharepoint01.contoso.com,collaboration@contoso.com,team-collaboration,production,12352,US-East,Windows Server 2022,active,SharePoint server
+jenkins01.contoso.com,devops@contoso.com,team-devops,production,12353,US-East,Linux,active,Jenkins CI/CD server
+gitlab01.contoso.com,devops@contoso.com,team-devops,production,12353,US-East,Linux,active,GitLab source control
+artifactory01.contoso.com,devops@contoso.com,team-devops,production,12353,US-East,Linux,active,Artifactory repository
+monitoring01.contoso.com,sre@contoso.com,team-sre,production,12354,US-East,Linux,active,Prometheus monitoring server
+grafana01.contoso.com,sre@contoso.com,team-sre,production,12354,US-East,Linux,active,Grafana dashboard server
+elk01.contoso.com,sre@contoso.com,team-sre,production,12354,US-East,Linux,active,Elasticsearch node 1
+elk02.contoso.com,sre@contoso.com,team-sre,production,12354,US-East,Linux,active,Elasticsearch node 2
+elk03.contoso.com,sre@contoso.com,team-sre,production,12354,US-East,Linux,active,Elasticsearch node 3
+vault01.contoso.com,security@contoso.com,team-security,production,12349,US-East,Linux,active,HashiCorp Vault server 1
+vault02.contoso.com,security@contoso.com,team-security,production,12349,US-West,Linux,active,HashiCorp Vault server 2
+vault03.contoso.com,security@contoso.com,team-security,production,12349,EU-West,Linux,active,HashiCorp Vault server 3
+k8s-master01.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes control plane node 1
+k8s-master02.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes control plane node 2
+k8s-master03.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes control plane node 3
+k8s-worker01.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes worker node 1
+k8s-worker02.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes worker node 2
+k8s-worker03.contoso.com,platform@contoso.com,team-platform,production,12346,US-East,Linux,active,Kubernetes worker node 3
+backup01.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-East,Linux,active,Backup server (Veeam)
+ntp01.contoso.com,infra@contoso.com,team-infrastructure,production,12350,US-East,Linux,active,NTP time server
+dns01.contoso.com,network@contoso.com,team-network,production,12348,US-East,Linux,active,Primary DNS server
+dns02.contoso.com,network@contoso.com,team-network,production,12348,US-West,Linux,active,Secondary DNS server
+proxy01.contoso.com,network@contoso.com,team-network,production,12348,US-East,Linux,active,Forward proxy server (Squid)
+jumpbox01.contoso.com,security@contoso.com,team-security,production,12349,US-East,Linux,active,Jump box / bastion host
+ejbca01.contoso.com,security@contoso.com,team-security,production,12349,US-East,Linux,active,EJBCA PKI server 1
+ejbca02.contoso.com,security@contoso.com,team-security,production,12349,US-West,Linux,active,EJBCA PKI server 2
+old-webapp.contoso.com,web-apps@contoso.com,team-web-apps,production,12345,US-East,Linux,decommissioned,Legacy web server - replaced by webapp01/02
+test-server-123.contoso.com,platform@contoso.com,team-platform,test,12346,US-East,Linux,maintenance,Temporary test server - maintenance mode
+

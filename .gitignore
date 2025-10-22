@@ -1,0 +1,77 @@
+# Keyfactor PKI Documentation - Git Ignore
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE and editor files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Log files
+*.log
+
+# Backup files
+*.bak
+*.backup
+
+# Sensitive information (if any gets created)
+*.pfx
+*.p12
+*.key
+*.pem
+*-key.txt
+secrets/
+credentials/
+
+# Build artifacts
+bin/
+obj/
+dist/
+build/
+
+# Test results
+test-results/
+coverage/
+
+# Node modules (if any automation uses Node.js)
+node_modules/
+package-lock.json
+
+# Python virtual environments
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Compiled binaries from automation scripts
+automation/**/bin/
+automation/**/*.exe
+
+# Editor temporary files
+.~lock.*
+

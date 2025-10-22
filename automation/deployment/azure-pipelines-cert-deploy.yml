@@ -1,0 +1,203 @@
+# Azure DevOps Pipeline for Certificate Deployment
+# Triggered by Keyfactor webhook when certificate is renewed
+
+trigger: none  # Manual or webhook-triggered only
+
+pr: none
+
+parameters:
+  - name: certificateId
+    displayName: 'Certificate ID'
+    type: string
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'development'
+    values:
+      - development
+      - staging
+      - production
+  - name: approvalRequired
+    displayName: 'Require Approval'
+    type: boolean
+    default: true
+
+variables:
+  - group: keyfactor-credentials-${{ parameters.environment }}
+  - name: certificateId
+    value: ${{ parameters.certificateId }}
+
+stages:
+  - stage: FetchCertificate
+    displayName: 'Fetch Certificate from Keyfactor'
+    jobs:
+      - job: Fetch
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Download Certificate'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $keyfactorHost = "$(KeyfactorHost)"
+                $apiUrl = "$keyfactorHost/KeyfactorAPI/Certificates/$(certificateId)/Download"
+                
+                $credential = New-Object System.Management.Automation.PSCredential(
+                    "$(KeyfactorUsername)",
+                    (ConvertTo-SecureString "$(KeyfactorPassword)" -AsPlainText -Force)
+                )
+                
+                # Download certificate in PFX format
+                $response = Invoke-RestMethod -Uri $apiUrl `
+                    -Method POST `
+                    -Credential $credential `
+                    -Body '{"IncludeChain":true,"Password":"$(CertPassword)"}' `
+                    -ContentType "application/json"
+                
+                # Save to file
+                [System.IO.File]::WriteAllBytes(
+                    "$(Build.ArtifactStagingDirectory)/certificate.pfx",
+                    [System.Convert]::FromBase64String($response.CertificateData)
+                )
+                
+                Write-Host "Certificate downloaded successfully"
+          
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Certificate Artifact'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)'
+              artifactName: 'certificate'
+
+  - stage: DeployToAzure
+    displayName: 'Deploy to Azure Resources'
+    dependsOn: FetchCertificate
+    condition: succeeded()
+    jobs:
+      - deployment: DeployKeyVault
+        displayName: 'Deploy to Azure Key Vault'
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: certificate
+                
+                - task: AzureCLI@2
+                  displayName: 'Import to Key Vault'
+                  inputs:
+                    azureSubscription: 'Azure-${{ parameters.environment }}'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      # Import certificate to Key Vault
+                      az keyvault certificate import \
+                        --vault-name $(KeyVaultName) \
+                        --name $(CertificateName) \
+                        --file $(Pipeline.Workspace)/certificate/certificate.pfx \
+                        --password $(CertPassword)
+                      
+                      echo "Certificate imported to Key Vault successfully"
+      
+      - deployment: DeployAppService
+        displayName: 'Deploy to App Service'
+        dependsOn: DeployKeyVault
+        pool:
+          vmImage: 'ubuntu-latest'
+        environment: ${{ parameters.environment }}
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: 'Bind Certificate to App Service'
+                  inputs:
+                    azureSubscription: 'Azure-${{ parameters.environment }}'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      # Get certificate thumbprint from Key Vault
+                      THUMBPRINT=$(az keyvault certificate show \
+                        --vault-name $(KeyVaultName) \
+                        --name $(CertificateName) \
+                        --query 'x509ThumbprintHex' \
+                        --output tsv)
+                      
+                      # Bind to App Service
+                      az webapp config ssl bind \
+                        --resource-group $(ResourceGroup) \
+                        --name $(AppServiceName) \
+                        --certificate-thumbprint $THUMBPRINT \
+                        --ssl-type SNI
+                      
+                      echo "Certificate bound to App Service successfully"
+
+  - stage: Verification
+    displayName: 'Verify Deployment'
+    dependsOn: DeployToAzure
+    condition: succeeded()
+    jobs:
+      - job: Verify
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Verify HTTPS Endpoint'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $appUrl = "https://$(AppServiceName).azurewebsites.net"
+                
+                Write-Host "Testing $appUrl..."
+                
+                try {
+                    $response = Invoke-WebRequest -Uri $appUrl -UseBasicParsing -TimeoutSec 30
+                    Write-Host "✓ HTTPS endpoint accessible (Status: $($response.StatusCode))"
+                    
+                    # Verify certificate
+                    $request = [System.Net.HttpWebRequest]::Create($appUrl)
+                    $request.GetResponse() | Out-Null
+                    $cert = $request.ServicePoint.Certificate
+                    
+                    Write-Host "✓ Certificate Subject: $($cert.Subject)"
+                    Write-Host "✓ Certificate Expiry: $($cert.GetExpirationDateString())"
+                    
+                } catch {
+                    Write-Error "HTTPS endpoint test failed: $_"
+                    exit 1
+                }
+          
+          - task: PowerShell@2
+            displayName: 'Send Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Send Teams notification
+                $teamsWebhook = "$(TeamsWebhookUrl)"
+                
+                $message = @{
+                    "@type" = "MessageCard"
+                    "@context" = "https://schema.org/extensions"
+                    "summary" = "Certificate Deployed"
+                    "themeColor" = "0078D7"
+                    "title" = "Certificate Deployment Successful"
+                    "sections" = @(
+                        @{
+                            "facts" = @(
+                                @{ "name" = "Environment"; "value" = "${{ parameters.environment }}" },
+                                @{ "name" = "Certificate ID"; "value" = "$(certificateId)" },
+                                @{ "name" = "App Service"; "value" = "$(AppServiceName)" },
+                                @{ "name" = "Pipeline"; "value" = "$(Build.DefinitionName)" }
+                            )
+                        }
+                    )
+                } | ConvertTo-Json -Depth 10
+                
+                Invoke-RestMethod -Uri $teamsWebhook `
+                    -Method POST `
+                    -Body $message `
+                    -ContentType "application/json"
+
