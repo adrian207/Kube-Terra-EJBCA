@@ -1,1130 +1,891 @@
 # Service Owner Guide
-## Certificate Lifecycle Management for Developers and Service Owners
+## Certificate Management for Application Teams
 
 **Author**: Adrian Johnson <adrian207@gmail.com>  
 **Version**: 1.0  
 **Date**: October 23, 2025  
-**Classification**: Internal Use  
-**Target Audience**: Developers, service owners, application teams
+**Status**: Complete
 
 ---
 
-## Document Purpose
+## Overview
 
-This guide provides application developers and service owners with everything they need to know about requesting, managing, and troubleshooting certificates for their services. It covers self-service options, best practices, and common scenarios.
+This guide provides application teams and service owners with everything needed to request, manage, and troubleshoot certificates in the Keyfactor PKI environment. Whether you're deploying web applications, microservices, or infrastructure components, this guide covers all certificate scenarios.
 
----
-
-## Table of Contents
-
-1. [Quick Start](#1-quick-start)
-2. [Understanding Certificate Templates](#2-understanding-certificate-templates)
-3. [Requesting Certificates](#3-requesting-certificates)
-4. [Certificate Lifecycle](#4-certificate-lifecycle)
-5. [Integration Patterns](#5-integration-patterns)
-6. [Troubleshooting](#6-troubleshooting)
-7. [Best Practices](#7-best-practices)
-8. [FAQ](#8-faq)
+**Who This Guide Is For**:
+- Application developers and architects
+- DevOps engineers and platform teams
+- Service owners and technical leads
+- Infrastructure engineers
+- Security-conscious developers
 
 ---
 
-## 1. Quick Start
+## Quick Start
 
-### 1.1 I Just Need a Certificate - What Do I Do?
+### 🚀 **Get a Certificate in 2 Minutes**
 
-**Choose your platform**:
-
-| Platform | Method | Time to Certificate | Documentation Link |
-|----------|--------|-------------------|-------------------|
-| **Kubernetes** | Apply `Certificate` CRD | < 5 minutes | [§ 3.4](#34-kubernetes-cert-manager) |
-| **Azure App Service** | Azure Key Vault integration | < 10 minutes | [§ 3.5](#35-azure-app-service) |
-| **Windows Server** | GPO auto-enrollment | Automatic | [§ 3.6](#36-windows-servers) |
-| **Linux Server** | ACME (certbot) | < 5 minutes | [§ 3.3](#33-acme-protocol-linux-containers) |
-| **Network Device** | SCEP enrollment | < 15 minutes | [§ 3.7](#37-network-devices) |
-| **Custom App** | Keyfactor API | < 10 minutes | [§ 3.8](#38-api-based-custom-integrations) |
-| **One-off / Special** | Self-service portal | < 30 minutes | [§ 3.2](#32-self-service-web-portal) |
-
-### 1.2 Before You Start
-
-**You'll Need**:
-1. ✅ **Hostname**: The FQDN for your service (e.g., `api.contoso.com`)
-2. ✅ **Authorization**: You must own the domain/hostname (verified via asset inventory)
-3. ✅ **Template**: Know which certificate template to use (see [§ 2](#2-understanding-certificate-templates))
-4. ✅ **Deployment**: Where will the certificate be deployed? (Key Vault, file, container)
-
-**Common Scenarios**:
-- **Internal website**: Use `TLS-Server-Internal` template
-- **Public-facing website**: Use `TLS-Server-Public` template  
-- **API service**: Use `TLS-Server-Internal` template
-- **Client authentication**: Use `TLS-Client-Auth` template
-- **Code signing**: Use `Code-Signing` template (requires approval)
-
----
-
-## 2. Understanding Certificate Templates
-
-### 2.1 Available Templates
-
-| Template Name | Purpose | Validity | Key Size | Approval Required |
-|---------------|---------|----------|----------|-------------------|
-| **TLS-Server-Internal** | Internal HTTPS services | 1 year | RSA 2048 | ❌ Auto |
-| **TLS-Server-Public** | Public-facing HTTPS | 90 days | RSA 2048 | ❌ Auto |
-| **TLS-Server-Extended** | Long-lived internal services | 2 years | RSA 2048 | ✅ Required |
-| **TLS-Client-Auth** | Client certificate authentication | 1 year | RSA 2048 | ❌ Auto |
-| **Code-Signing** | Software code signing | 3 years | RSA 4096 | ✅ Required |
-| **Email-Protection** | S/MIME email encryption | 2 years | RSA 2048 | ❌ Auto |
-| **Wildcard-Internal** | Wildcard certificates (*.contoso.com) | 1 year | RSA 2048 | ✅ Required |
-
-**See**: [03-Policy-Catalog.md](./03-Policy-Catalog.md) for complete template details
-
-### 2.2 Which Template Should I Use?
-
-**Decision Tree**:
-```
-What kind of certificate do you need?
-├─ HTTPS/TLS Server Certificate
-│  ├─ Internal service? → TLS-Server-Internal
-│  ├─ Public-facing? → TLS-Server-Public
-│  └─ Need long validity (2+ years)? → TLS-Server-Extended (requires approval)
-│
-├─ Client Authentication
-│  └─ User or device authentication → TLS-Client-Auth
-│
-├─ Code Signing
-│  └─ Signing executables, scripts, containers → Code-Signing (requires approval)
-│
-├─ Email Encryption
-│  └─ S/MIME email → Email-Protection
-│
-└─ Wildcard Certificate
-   └─ Multiple subdomains (*.contoso.com) → Wildcard-Internal (requires approval)
-```
-
-### 2.3 Authorization Rules
-
-**You can ONLY request certificates for**:
-- ✅ Hostnames you own (verified via asset inventory / CMDB)
-- ✅ Domains your team is authorized for
-- ✅ Services you are tagged as owner of
-
-**Common authorization errors**:
-- ❌ "Access denied: You do not own this hostname"
-  - **Solution**: Update asset inventory with correct owner
-- ❌ "SAN validation failed: example.com not in allowed domains"
-  - **Solution**: Request access to domain or use correct domain
-- ❌ "Template not authorized for your role"
-  - **Solution**: Request access via ServiceNow ticket
-
----
-
-## 3. Requesting Certificates
-
-### 3.1 Method Comparison
-
-| Method | Best For | Complexity | Auto-Renewal |
-|--------|----------|------------|--------------|
-| **Kubernetes (cert-manager)** | Containerized apps | ⭐ Easy | ✅ Yes |
-| **ACME (certbot)** | Linux servers, containers | ⭐⭐ Moderate | ✅ Yes |
-| **GPO Auto-Enrollment** | Windows domain servers | ⭐ Easy (automatic) | ✅ Yes |
-| **Azure Key Vault** | Azure services | ⭐ Easy | ✅ Yes (manual setup) |
-| **API** | Custom integrations | ⭐⭐⭐ Complex | ✅ Yes (if you implement) |
-| **Self-Service Portal** | One-off requests | ⭐ Easy | ❌ Manual renewal |
-
-### 3.2 Self-Service Web Portal
-
-**Use Case**: One-time certificate requests, special scenarios, manual enrollment
-
-**Steps**:
-1. **Navigate** to: https://keyfactor.contoso.com
-2. **Login** with your corporate credentials
-3. **Click** "Request Certificate"
-4. **Select** template (e.g., "TLS-Server-Internal")
-5. **Enter** details:
-   ```
-   Common Name (CN): api.contoso.com
-   Subject Alternative Names (SANs):
-     - api.contoso.com
-     - api-backup.contoso.com
-   
-   Metadata:
-     - Owner: your-email@contoso.com
-     - Application: Your App Name
-     - Environment: Production
-   ```
-6. **Submit** request
-7. **Download** certificate (PEM or PFX format)
-
-**Certificate Formats**:
-- **PEM** (for Linux/NGINX/Apache):
-  - `certificate.pem` - certificate
-  - `private-key.pem` - private key (keep secure!)
-  - `ca-chain.pem` - CA chain
-- **PFX/P12** (for Windows/IIS):
-  - `certificate.pfx` - certificate + private key (password-protected)
-
-**Timeline**:
-- ✅ **Auto-approved templates**: Instant (< 30 seconds)
-- ⏳ **Approval-required templates**: 1-2 business days
-
-### 3.3 ACME Protocol (Linux, Containers)
-
-**Use Case**: Linux servers, containers, Let's Encrypt-compatible clients
-
-**Supported Clients**:
-- `certbot` (recommended for Linux)
-- `acme.sh` (lightweight, shell-based)
-- `win-acme` (Windows)
-- `lego` (Go-based, multi-cloud)
-
-**Example: certbot on Linux**
-
-```bash
-# Install certbot
-sudo apt-get update
-sudo apt-get install -y certbot
-
-# Configure ACME server
-export ACME_SERVER="https://keyfactor.contoso.com/acme"
-export ACME_EMAIL="your-email@contoso.com"
-
-# Request certificate (HTTP-01 challenge)
-sudo certbot certonly \
-  --standalone \
-  --server $ACME_SERVER \
-  --email $ACME_EMAIL \
-  --agree-tos \
-  --no-eff-email \
-  -d api.contoso.com
-
-# Certificate files will be in:
-# /etc/letsencrypt/live/api.contoso.com/fullchain.pem
-# /etc/letsencrypt/live/api.contoso.com/privkey.pem
-
-# Setup auto-renewal (runs twice daily)
-sudo certbot renew --dry-run  # Test renewal
-sudo systemctl enable certbot.timer
-sudo systemctl start certbot.timer
-```
-
-**Example: acme.sh (lightweight)**
-
-```bash
-# Install acme.sh
-curl https://get.acme.sh | sh -s email=your-email@contoso.com
-
-# Set ACME server
-export ACME_SERVER="https://keyfactor.contoso.com/acme"
-
-# Request certificate
-acme.sh --issue \
-  --server $ACME_SERVER \
-  -d api.contoso.com \
-  --standalone
-
-# Install certificate
-acme.sh --install-cert -d api.contoso.com \
-  --cert-file /etc/nginx/certs/api.contoso.com.crt \
-  --key-file /etc/nginx/certs/api.contoso.com.key \
-  --fullchain-file /etc/nginx/certs/api.contoso.com.fullchain.crt \
-  --reloadcmd "sudo systemctl reload nginx"
-
-# Auto-renewal is automatic (daily check)
-```
-
-**Challenge Types**:
-- **HTTP-01**: Webserver must be accessible on port 80 (most common)
-- **DNS-01**: Add TXT record to DNS (for wildcards, private networks)
-- **TLS-ALPN-01**: TLS-based challenge (port 443)
-
-### 3.4 Kubernetes (cert-manager)
-
-**Use Case**: Kubernetes workloads, microservices, ingress TLS
-
-**Prerequisites**:
-- cert-manager installed in your cluster
-- Keyfactor `ClusterIssuer` configured by platform team
-
-**Example: Ingress with automatic TLS**
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: my-api-ingress
-  namespace: production
-  annotations:
-    cert-manager.io/cluster-issuer: "keyfactor-issuer"
-spec:
-  tls:
-  - hosts:
-    - api.contoso.com
-    secretName: api-tls-secret  # cert-manager will create this
-  rules:
-  - host: api.contoso.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: api-service
-            port:
-              number: 80
-```
-
-**Example: Standalone Certificate**
-
+**For Kubernetes Applications**:
 ```yaml
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: my-app-certificate
+  name: my-app-tls
   namespace: production
 spec:
-  secretName: my-app-tls
-  duration: 2160h  # 90 days
-  renewBefore: 360h  # Renew 15 days before expiry
-  subject:
-    organizations:
-      - Contoso Inc
-  commonName: app.contoso.com
-  dnsNames:
-    - app.contoso.com
-    - app-backup.contoso.com
+  secretName: my-app-tls-secret
   issuerRef:
-    name: keyfactor-issuer
+    name: keyfactor-cluster-issuer
     kind: ClusterIssuer
-    group: keyfactor.com
+  dnsNames:
+  - my-app.contoso.com
+  - api.my-app.contoso.com
 ```
 
-**Using the Certificate in a Pod**:
+**For Windows Applications**:
+```powershell
+# Request certificate via PowerShell
+$certRequest = @{
+    CommonName = "my-app.contoso.com"
+    Template = "TLS-Server-Internal"
+    SubjectAlternativeNames = @("api.my-app.contoso.com")
+}
+Invoke-RestMethod -Uri "https://keyfactor.contoso.com/api/certificates" -Method POST -Body ($certRequest | ConvertTo-Json)
+```
 
+**For Linux Applications**:
+```bash
+# Request certificate via ACME
+certbot certonly --webroot -w /var/www/html -d my-app.contoso.com --server https://acme.contoso.com
+```
+
+---
+
+## Certificate Types and Templates
+
+### Available Certificate Templates
+
+| Template | Purpose | Validity | Key Size | SAN Support |
+|----------|---------|----------|----------|-------------|
+| **TLS-Server-Internal** | Internal web services | 2 years | RSA 2048+ / ECDSA P-256 | ✅ |
+| **TLS-Server-External** | Public-facing services | 1 year | RSA 2048+ / ECDSA P-256 | ✅ |
+| **TLS-Client-Auth** | Client authentication | 2 years | RSA 2048+ / ECDSA P-256 | ✅ |
+| **Code-Signing** | Application signing | 3 years | RSA 4096 | ❌ |
+| **Email-SMIME** | Email encryption | 2 years | RSA 2048+ | ✅ |
+| **Device-Certificate** | IoT/network devices | 5 years | RSA 2048+ | ✅ |
+
+### Template Selection Guide
+
+**Choose TLS-Server-Internal when**:
+- Service runs on internal network only
+- No external internet access required
+- Development, staging, or internal production services
+
+**Choose TLS-Server-External when**:
+- Service accessible from internet
+- Public-facing APIs or web applications
+- Services requiring public trust
+
+**Choose TLS-Client-Auth when**:
+- Application needs to authenticate to other services
+- API-to-API communication
+- Service mesh authentication
+
+---
+
+## Enrollment Methods
+
+### 1. Kubernetes (cert-manager) - **Recommended for K8s**
+
+**Prerequisites**:
+- cert-manager installed in cluster
+- Keyfactor ClusterIssuer configured
+- Proper RBAC permissions
+
+**Certificate Request**:
 ```yaml
-apiVersion: v1
-kind: Pod
+apiVersion: cert-manager.io/v1
+kind: Certificate
 metadata:
-  name: my-app
+  name: web-app-tls
   namespace: production
 spec:
-  containers:
-  - name: app
-    image: my-app:latest
-    volumeMounts:
-    - name: tls-certs
-      mountPath: "/etc/tls"
-      readOnly: true
-  volumes:
-  - name: tls-certs
-    secret:
-      secretName: my-app-tls  # Created by cert-manager
+  secretName: web-app-tls-secret
+  issuerRef:
+    name: keyfactor-cluster-issuer
+    kind: ClusterIssuer
+  dnsNames:
+  - web-app.contoso.com
+  - api.web-app.contoso.com
+  - admin.web-app.contoso.com
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # Renew 30 days before expiry
 ```
 
-**Check Certificate Status**:
+**Deployment Integration**:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: web-app
+        image: my-app:latest
+        ports:
+        - containerPort: 443
+        volumeMounts:
+        - name: tls-secret
+          mountPath: /etc/ssl/certs
+          readOnly: true
+      volumes:
+      - name: tls-secret
+        secret:
+          secretName: web-app-tls-secret
+```
 
+### 2. ACME Protocol - **Recommended for Linux**
+
+**Prerequisites**:
+- Domain ownership verification
+- ACME client installed (certbot, acme.sh, win-acme)
+- Web server access for HTTP-01 challenge
+
+**Certificate Request**:
 ```bash
-# List certificates
-kubectl get certificates -n production
+# Using certbot
+certbot certonly --webroot \
+  -w /var/www/html \
+  -d my-app.contoso.com \
+  -d api.my-app.contoso.com \
+  --server https://acme.contoso.com \
+  --email admin@contoso.com \
+  --agree-tos \
+  --non-interactive
 
-# Check certificate details
-kubectl describe certificate my-app-certificate -n production
-
-# View certificate in secret
-kubectl get secret my-app-tls -n production -o yaml
+# Using acme.sh
+acme.sh --issue -d my-app.contoso.com -d api.my-app.contoso.com \
+  --webroot /var/www/html \
+  --server https://acme.contoso.com
 ```
 
-**Auto-Renewal**: ✅ Automatic - cert-manager renews 15 days before expiry
-
-### 3.5 Azure App Service
-
-**Use Case**: Azure App Service, Azure Functions with custom domains
-
-**Option 1: Azure Key Vault Integration (Recommended)**
-
+**Auto-Renewal Setup**:
 ```bash
-# 1. Request certificate and store in Azure Key Vault
-#    (Keyfactor orchestrator does this automatically)
-
-# 2. Grant App Service access to Key Vault
-az webapp config ssl bind \
-  --certificate-source AzureKeyVault \
-  --certificate-name api-contoso-com \
-  --resource-group my-rg \
-  --name my-app-service \
-  --ssl-type SNI
-
-# Auto-renewal: ✅ Yes (orchestrator updates Key Vault, App Service auto-syncs)
+# Add to crontab for automatic renewal
+0 2 * * * /usr/bin/certbot renew --quiet --post-hook "systemctl reload nginx"
 ```
 
-**Option 2: Manual Upload**
+### 3. Windows GPO Auto-Enrollment - **Recommended for Windows**
 
-```bash
-# 1. Download certificate from Keyfactor portal (PFX format)
+**Prerequisites**:
+- Domain-joined Windows server
+- GPO configured for auto-enrollment
+- Proper group membership
 
-# 2. Upload to App Service
-az webapp config ssl upload \
-  --certificate-file certificate.pfx \
-  --certificate-password "password" \
-  --resource-group my-rg \
-  --name my-app-service
-
-# 3. Bind to custom domain
-az webapp config hostname add \
-  --hostname api.contoso.com \
-  --resource-group my-rg \
-  --webapp-name my-app-service
-```
-
-**Auto-Renewal**: 
-- Option 1: ✅ Automatic
-- Option 2: ❌ Manual renewal required
-
-### 3.6 Windows Servers (Domain-Joined)
-
-**Use Case**: Windows servers joined to Active Directory domain
-
-**Auto-Enrollment (Recommended)**:
-
-✅ **No action required!** Certificates are automatically enrolled via Group Policy.
-
-**How it works**:
-1. Server is domain-joined
-2. GPO applies certificate policy
-3. Certificate is automatically requested from AD CS
-4. Certificate is automatically renewed before expiry
-5. Certificate is stored in Windows Certificate Store
-
-**Verify Auto-Enrollment**:
-
+**Certificate Request** (Automatic):
 ```powershell
-# Open Certificate Manager
-certlm.msc
+# Certificates are automatically enrolled via GPO
+# Check certificate store
+Get-ChildItem -Path "Cert:\LocalMachine\My" | Where-Object {$_.Subject -like "*my-app*"}
 
-# Check for certificate in Personal > Certificates
-# Look for certificate with your server's FQDN
-
-# Verify auto-enrollment is working
-Get-ChildItem Cert:\LocalMachine\My | Where-Object {
-    $_.Subject -like "*$($env:COMPUTERNAME)*"
-}
-
-# Check auto-enrollment status
-gpresult /r | Select-String "Certificate"
+# Export certificate for application use
+$cert = Get-ChildItem -Path "Cert:\LocalMachine\My" | Where-Object {$_.Subject -eq "CN=my-app.contoso.com"}
+$cert | Export-Certificate -FilePath "C:\certs\my-app.cer" -Type CERT
 ```
 
-**Manual Enrollment** (if auto-enrollment fails):
+### 4. REST API - **For Custom Integrations**
 
-```powershell
-# Request certificate manually
-$cert = Get-Certificate -Template "TLS-Server-Internal" `
-    -SubjectName "CN=$env:COMPUTERNAME.$env:USERDNSDOMAIN" `
-    -DnsName "$env:COMPUTERNAME.$env:USERDNSDOMAIN" `
-    -CertStoreLocation Cert:\LocalMachine\My
+**Prerequisites**:
+- API credentials (client certificate or token)
+- Network access to Keyfactor API
+- Understanding of certificate templates
 
-# Verify certificate
-Get-ChildItem Cert:\LocalMachine\My\$($cert.Certificate.Thumbprint)
-```
-
-**Bind to IIS**:
-
-```powershell
-# Import WebAdministration module
-Import-Module WebAdministration
-
-# Bind certificate to IIS site
-$cert = Get-ChildItem Cert:\LocalMachine\My | 
-    Where-Object { $_.Subject -like "*yourserver*" } | 
-    Select-Object -First 1
-
-New-IISSiteBinding -Name "Default Web Site" `
-    -BindingInformation "*:443:" `
-    -Protocol https `
-    -CertificateThumbprint $cert.Thumbprint `
-    -CertStoreLocation "Cert:\LocalMachine\My"
-```
-
-### 3.7 Network Devices (SCEP)
-
-**Use Case**: Cisco routers/switches, Palo Alto firewalls, F5 load balancers
-
-**SCEP Enrollment Steps**:
-
-1. **Get SCEP URL** from PKI team:
-   ```
-   https://keyfactor.contoso.com/scep/[scep-profile-id]
-   ```
-
-2. **Configure device** (example: Cisco IOS):
-
-```cisco
-crypto pki trustpoint KEYFACTOR
- enrollment url http://keyfactor.contoso.com/scep/network-devices
- subject-name CN=router01.contoso.com
- revocation-check none
- rsakeypair KEYFACTOR 2048
- 
-crypto pki authenticate KEYFACTOR
-crypto pki enroll KEYFACTOR
-```
-
-3. **Verify enrollment**:
-
-```cisco
-show crypto pki certificates
-```
-
-**Device-Specific Guides**:
-- **Cisco IOS/IOS-XE**: [Link to Cisco SCEP guide]
-- **Palo Alto**: [Link to Palo Alto SCEP guide]
-- **F5 BIG-IP**: [Link to F5 SCEP guide]
-
-### 3.8 API-Based (Custom Integrations)
-
-**Use Case**: Custom applications, CI/CD pipelines, automation scripts
-
-**Authentication**:
-
-```bash
-# Option 1: Username/Password
-curl -X POST https://keyfactor.contoso.com/KeyfactorAPI/Auth/Login \
-  -H "Content-Type: application/json" \
-  -d '{"username": "your-email@contoso.com", "password": "your-password"}' \
-  | jq -r '.access_token' > token.txt
-
-# Option 2: API Key (recommended)
-export KEYFACTOR_API_KEY="your-api-key"
-```
-
-**Request Certificate (Python)**:
-
+**Certificate Request**:
 ```python
 import requests
 import json
 
-# Configuration
-KEYFACTOR_API_URL = "https://keyfactor.contoso.com/KeyfactorAPI"
-API_KEY = "your-api-key"
-
+# API configuration
+api_url = "https://keyfactor.contoso.com/api/certificates"
 headers = {
-    "Authorization": f"Bearer {API_KEY}",
+    "Authorization": "Bearer YOUR_API_TOKEN",
     "Content-Type": "application/json"
 }
 
-# Generate CSR (using cryptography library)
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-
-# Generate private key
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-    backend=default_backend()
-)
-
-# Generate CSR
-csr = x509.CertificateSigningRequestBuilder().subject_name(
-    x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "api.contoso.com"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Contoso Inc"),
-    ])
-).add_extension(
-    x509.SubjectAlternativeName([
-        x509.DNSName("api.contoso.com"),
-        x509.DNSName("api-backup.contoso.com"),
-    ]),
-    critical=False,
-).sign(private_key, hashes.SHA256(), default_backend())
-
-csr_pem = csr.public_bytes(serialization.Encoding.PEM).decode('utf-8')
-
-# Submit certificate request
-request_data = {
-    "CSR": csr_pem,
+# Certificate request
+cert_request = {
+    "CommonName": "my-app.contoso.com",
     "Template": "TLS-Server-Internal",
-    "CertificateAuthority": "Contoso-Enterprise-CA",
-    "Metadata": {
-        "Owner": "your-email@contoso.com",
-        "Application": "API Service",
-        "Environment": "Production"
-    },
-    "SANs": {
-        "DNS": ["api.contoso.com", "api-backup.contoso.com"]
-    }
+    "SubjectAlternativeNames": [
+        "api.my-app.contoso.com",
+        "admin.my-app.contoso.com"
+    ],
+    "KeyAlgorithm": "RSA",
+    "KeySize": 2048,
+    "ValidityPeriod": 730  # days
 }
 
-response = requests.post(
-    f"{KEYFACTOR_API_URL}/Certificates/Enroll",
-    headers=headers,
-    json=request_data
+# Submit request
+response = requests.post(api_url, headers=headers, json=cert_request)
+if response.status_code == 201:
+    cert_id = response.json()["Id"]
+    print(f"Certificate request submitted: {cert_id}")
+else:
+    print(f"Request failed: {response.text}")
+```
+
+---
+
+## Authorization and Access Control
+
+### Multi-Layer Authorization Model
+
+The PKI platform uses a 4-layer authorization model. **ALL layers must pass** for certificate issuance:
+
+#### Layer 1: Identity RBAC
+**Question**: "WHO can request certificates?"
+
+**Your Role Requirements**:
+- Member of authorized AD group (e.g., `APP-WebDevelopers`, `INFRA-ServerAdmins`)
+- Valid authentication (MFA required)
+- Active account status
+
+**Check Your Access**:
+```powershell
+# Check your group membership
+Get-ADUser -Identity $env:USERNAME -Properties MemberOf | Select-Object -ExpandProperty MemberOf
+
+# Verify PKI access
+Invoke-RestMethod -Uri "https://keyfactor.contoso.com/api/access/check" -Headers @{Authorization="Bearer $token"}
+```
+
+#### Layer 2: SAN Validation
+**Question**: "WHAT domains can you request?"
+
+**Domain Patterns**:
+- `*.contoso.com` - All subdomains
+- `*.dev.contoso.com` - Development subdomains only
+- `*.prod.contoso.com` - Production subdomains only
+- `api.contoso.com` - Specific domain
+
+**Check Domain Authorization**:
+```bash
+# Check if domain is authorized for your role
+curl -H "Authorization: Bearer $token" \
+  "https://keyfactor.contoso.com/api/domains/validate?domain=my-app.contoso.com"
+```
+
+#### Layer 3: Resource Binding
+**Question**: "WHERE can the certificate be deployed?"
+
+**Asset Ownership Verification**:
+- Certificate requester must own the target server/application
+- Asset inventory integration (CMDB, Azure, AWS)
+- Resource tagging and metadata validation
+
+**Verify Asset Ownership**:
+```python
+# Check asset ownership
+import requests
+
+def check_asset_ownership(server_name, requester):
+    response = requests.get(f"https://cmdb.contoso.com/api/assets/{server_name}")
+    asset = response.json()
+    
+    if requester in asset["owners"]:
+        return True
+    return False
+
+# Example usage
+if check_asset_ownership("web-app-01", "john.doe@contoso.com"):
+    print("Asset ownership verified")
+else:
+    print("Asset ownership verification failed")
+```
+
+#### Layer 4: Template Policy
+**Question**: "HOW should the certificate be issued?"
+
+**Policy Enforcement**:
+- Technical constraints (key size, algorithm, validity)
+- Approval workflows for sensitive templates
+- Compliance requirements
+
+### Common Authorization Scenarios
+
+**Scenario 1: Web Developer Requesting Internal Certificate**
+```
+✅ Layer 1: Member of APP-WebDevelopers group
+✅ Layer 2: Requesting *.dev.contoso.com (authorized pattern)
+✅ Layer 3: Owns development server web-dev-01
+✅ Layer 4: TLS-Server-Internal template (auto-approved)
+Result: Certificate issued automatically
+```
+
+**Scenario 2: Developer Requesting Production Certificate**
+```
+✅ Layer 1: Member of APP-WebDevelopers group
+✅ Layer 2: Requesting *.prod.contoso.com (authorized pattern)
+❌ Layer 3: Does not own production server web-prod-01
+Result: Request denied - "You do not have ownership of web-prod-01"
+```
+
+**Scenario 3: Infrastructure Team Requesting Code Signing**
+```
+✅ Layer 1: Member of INFRA-ServerAdmins group
+✅ Layer 2: Requesting code-signing.contoso.com (authorized)
+✅ Layer 3: Owns build server build-01
+⚠️ Layer 4: Code-Signing template requires manual approval
+Result: Request submitted for approval
+```
+
+---
+
+## Certificate Lifecycle Management
+
+### Automatic Renewal Process
+
+**How It Works**:
+1. **T-30 days**: Keyfactor detects certificate expiring in 30 days
+2. **Auto-renewal**: Certificate automatically renewed
+3. **Webhook notification**: Automation pipeline triggered
+4. **Deployment**: New certificate deployed to application
+5. **Verification**: Certificate deployment verified
+6. **Notification**: Success/failure notification sent
+
+**What You Need to Do**:
+- **Nothing!** Automatic renewal handles everything
+- Monitor notifications for any issues
+- Ensure webhook endpoints are accessible
+
+### Manual Renewal (If Needed)
+
+**When Manual Renewal Is Required**:
+- Automatic renewal failed
+- Certificate template changed
+- Domain changes required
+- Emergency renewal needed
+
+**Manual Renewal Process**:
+```bash
+# For ACME certificates
+certbot renew --force-renewal -d my-app.contoso.com
+
+# For Kubernetes certificates
+kubectl delete certificate my-app-tls -n production
+# Recreate the Certificate resource (cert-manager will request new cert)
+
+# For Windows certificates
+# Delete old certificate from store, GPO will auto-enroll new one
+```
+
+### Certificate Revocation
+
+**When to Revoke Certificates**:
+- Private key compromised
+- Certificate no longer needed
+- Domain ownership lost
+- Application decommissioned
+
+**Revocation Process**:
+```python
+import requests
+
+def revoke_certificate(cert_id, reason="unspecified"):
+    api_url = f"https://keyfactor.contoso.com/api/certificates/{cert_id}/revoke"
+    headers = {"Authorization": "Bearer YOUR_TOKEN"}
+    
+    payload = {
+        "Reason": reason,
+        "RevocationDate": "2025-10-23T10:00:00Z"
+    }
+    
+    response = requests.post(api_url, headers=headers, json=payload)
+    return response.status_code == 200
+
+# Example usage
+revoke_certificate("cert-12345", "keyCompromise")
+```
+
+---
+
+## Integration with Secrets Management
+
+### Azure Key Vault Integration
+
+**For Azure-Native Applications**:
+```python
+from azure.keyvault.secrets import SecretClient
+from azure.identity import DefaultAzureCredential
+
+# Initialize Key Vault client
+credential = DefaultAzureCredential()
+client = SecretClient(vault_url="https://my-vault.vault.azure.net/", credential=credential)
+
+# Store certificate
+certificate_pem = """-----BEGIN CERTIFICATE-----
+MIIFXjCCA0agAwIBAgIJAK...
+-----END CERTIFICATE-----"""
+
+client.set_secret("my-app-cert", certificate_pem)
+
+# Retrieve certificate
+secret = client.get_secret("my-app-cert")
+certificate = secret.value
+```
+
+**Automatic Key Vault Updates**:
+- Webhook automation updates Key Vault when certificates renew
+- Applications automatically get new certificates
+- No manual intervention required
+
+### HashiCorp Vault Integration
+
+**For Multi-Cloud Applications**:
+```python
+import hvac
+
+# Initialize Vault client
+client = hvac.Client(url='https://vault.contoso.com')
+client.token = 'YOUR_VAULT_TOKEN'
+
+# Store certificate
+cert_data = {
+    "certificate": certificate_pem,
+    "private_key": private_key_pem,
+    "issuing_ca": ca_cert_pem
+}
+
+client.secrets.kv.v2.create_or_update_secret(
+    path='my-app/certificate',
+    secret=cert_data
 )
 
-if response.status_code == 201:
-    cert_data = response.json()
-    print(f"Certificate issued! ID: {cert_data['CertificateId']}")
-    
-    # Save certificate
-    with open("certificate.pem", "w") as f:
-        f.write(cert_data['Certificates'][0])
-    
-    # Save private key
-    with open("private-key.pem", "wb") as f:
-        f.write(private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ))
-    
-    print("Certificate saved to certificate.pem")
-    print("Private key saved to private-key.pem (keep secure!)")
-else:
-    print(f"Error: {response.status_code} - {response.text}")
-```
-
-**Request Certificate (PowerShell)**:
-
-```powershell
-# Configuration
-$KeyfactorApiUrl = "https://keyfactor.contoso.com/KeyfactorAPI"
-$ApiKey = "your-api-key"
-
-$headers = @{
-    "Authorization" = "Bearer $ApiKey"
-    "Content-Type" = "application/json"
-}
-
-# Generate CSR (simplified - use proper CSR generation in production)
-$csr = @"
------BEGIN CERTIFICATE REQUEST-----
-[Your CSR content here]
------END CERTIFICATE REQUEST-----
-"@
-
-# Submit certificate request
-$requestBody = @{
-    CSR = $csr
-    Template = "TLS-Server-Internal"
-    CertificateAuthority = "Contoso-Enterprise-CA"
-    Metadata = @{
-        Owner = "your-email@contoso.com"
-        Application = "API Service"
-        Environment = "Production"
-    }
-    SANs = @{
-        DNS = @("api.contoso.com", "api-backup.contoso.com")
-    }
-} | ConvertTo-Json
-
-$response = Invoke-RestMethod `
-    -Uri "$KeyfactorApiUrl/Certificates/Enroll" `
-    -Method Post `
-    -Headers $headers `
-    -Body $requestBody
-
-Write-Host "Certificate issued! ID: $($response.CertificateId)"
-$response.Certificates[0] | Out-File "certificate.pem"
+# Retrieve certificate
+secret = client.secrets.kv.v2.read_secret_version(path='my-app/certificate')
+certificate = secret['data']['data']['certificate']
 ```
 
 ---
 
-## 4. Certificate Lifecycle
+## Troubleshooting Guide
 
-### 4.1 Certificate Renewal
+### Common Issues and Solutions
 
-**Automatic Renewal**:
+#### Issue 1: Certificate Request Denied
 
-Most certificates renew automatically 30 days before expiration:
+**Symptoms**:
+- Request returns "Access Denied" or "Authorization Failed"
+- Certificate not issued after request
 
-| Method | Auto-Renewal | Your Action |
-|--------|--------------|-------------|
-| **Kubernetes (cert-manager)** | ✅ Automatic | None - cert-manager handles it |
-| **ACME (certbot)** | ✅ Automatic | Verify certbot.timer is running |
-| **Windows GPO** | ✅ Automatic | None - GPO handles it |
-| **Azure Key Vault** | ✅ Automatic | Verify orchestrator is running |
-| **API** | ⚠️ Your responsibility | Implement renewal logic |
-| **Web Portal** | ❌ Manual | Request new cert before expiry |
+**Diagnosis Steps**:
+1. **Check Identity RBAC**:
+   ```powershell
+   # Verify group membership
+   Get-ADUser -Identity $env:USERNAME -Properties MemberOf
+   ```
 
-**Check Certificate Expiry**:
+2. **Check Domain Authorization**:
+   ```bash
+   # Test domain validation
+   curl -H "Authorization: Bearer $token" \
+     "https://keyfactor.contoso.com/api/domains/validate?domain=my-app.contoso.com"
+   ```
 
-```bash
-# Check certificate expiry (Linux)
-openssl x509 -in certificate.pem -noout -enddate
+3. **Check Asset Ownership**:
+   ```python
+   # Verify server ownership
+   check_asset_ownership("my-server", "your-email@contoso.com")
+   ```
 
-# Check certificate expiry (with days remaining)
-openssl x509 -in certificate.pem -noout -checkend 2592000  # 30 days
-# Exit code 0 = valid for 30+ days, 1 = expires within 30 days
-```
+**Solutions**:
+- Request access to appropriate AD group
+- Use authorized domain patterns
+- Verify asset ownership in CMDB
+- Contact PKI team for assistance
 
-```powershell
-# Check certificate expiry (Windows/PowerShell)
-$cert = Get-ChildItem Cert:\LocalMachine\My | 
-    Where-Object { $_.Subject -like "*yourhost*" }
-$daysRemaining = ($cert.NotAfter - (Get-Date)).Days
-Write-Host "Certificate expires in $daysRemaining days"
-```
+#### Issue 2: Automatic Renewal Failed
 
-**Manual Renewal** (if automatic renewal fails):
+**Symptoms**:
+- Certificate expired
+- Renewal notifications show failure
+- Application showing certificate errors
 
-1. **Request new certificate** using the same method as original
-2. **Deploy new certificate** to replace expiring certificate
-3. **Revoke old certificate** (optional, but recommended after successful deployment)
+**Diagnosis Steps**:
+1. **Check Certificate Status**:
+   ```bash
+   # Check certificate expiry
+   openssl x509 -in my-app.crt -text -noout | grep "Not After"
+   ```
 
-### 4.2 Certificate Revocation
+2. **Check Webhook Logs**:
+   ```bash
+   # Check automation logs
+   kubectl logs -n automation webhook-handler
+   ```
 
-**When to Revoke**:
-- ✅ Private key compromised or suspected compromise
-- ✅ Service decommissioned
-- ✅ Certificate no longer needed
-- ✅ Incorrect information in certificate
-- ❌ **Don't revoke** if just renewing (old cert expires naturally)
+3. **Verify Network Connectivity**:
+   ```bash
+   # Test webhook endpoint
+   curl -X POST https://webhook.contoso.com/certificate-renewed \
+     -H "Content-Type: application/json" \
+     -d '{"test": "connectivity"}'
+   ```
 
-**How to Revoke**:
+**Solutions**:
+- Fix webhook endpoint connectivity
+- Update automation scripts
+- Manually renew certificate
+- Contact PKI team for assistance
 
-**Option 1: Self-Service Portal**
-1. Navigate to https://keyfactor.contoso.com
-2. Search for your certificate
-3. Click "Revoke"
-4. Select reason: "Cessation of Operation" (most common) or "Key Compromise" (emergency)
-5. Confirm revocation
+#### Issue 3: Certificate Not Deployed
 
-**Option 2: API**
+**Symptoms**:
+- Certificate issued but not available to application
+- Application still using old certificate
+- Secret not updated in Kubernetes/Azure Key Vault
 
-```bash
-curl -X DELETE https://keyfactor.contoso.com/KeyfactorAPI/Certificates/{cert-id}/Revoke \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "RevocationReason": 5,
-    "Comment": "Service decommissioned",
-    "EffectiveDate": "2025-10-23T14:30:00Z"
-  }'
-```
+**Diagnosis Steps**:
+1. **Check Certificate Status**:
+   ```bash
+   # Verify certificate was issued
+   curl -H "Authorization: Bearer $token" \
+     "https://keyfactor.contoso.com/api/certificates/my-cert-id"
+   ```
 
-**Revocation Reasons**:
-- **Code 1**: Key Compromise (emergency - immediate revocation)
-- **Code 5**: Cessation of Operation (most common - service retired)
-- **Code 4**: Superseded (replaced by new certificate)
+2. **Check Secret Store**:
+   ```bash
+   # Check Kubernetes secret
+   kubectl get secret my-app-tls -n production -o yaml
+   
+   # Check Azure Key Vault
+   az keyvault secret show --vault-name my-vault --name my-app-cert
+   ```
 
-**Timeline**: Revoked certificates appear in CRL within 1 hour
+3. **Check Automation Logs**:
+   ```bash
+   # Check deployment automation
+   kubectl logs -n automation cert-deployer
+   ```
 
-### 4.3 Certificate Replacement
+**Solutions**:
+- Restart application to pick up new certificate
+- Manually update secret store
+- Check automation script configuration
+- Contact PKI team for assistance
 
-**Scenario**: Replace certificate with new key pair (not a renewal)
+### Emergency Procedures
 
-**Steps**:
-1. **Request new certificate** (generates new key pair)
-2. **Deploy new certificate** alongside old certificate
-3. **Test** with new certificate
-4. **Switch traffic** to new certificate
-5. **Revoke old certificate** after successful cutover
+#### Emergency Certificate Renewal
 
----
+**When**: Certificate expired and automatic renewal failed
 
-## 5. Integration Patterns
+**Process**:
+1. **Immediate Action**:
+   ```bash
+   # Force certificate renewal
+   certbot renew --force-renewal -d my-app.contoso.com
+   ```
 
-### 5.1 CI/CD Pipeline Integration
+2. **Deploy Certificate**:
+   ```bash
+   # Update Kubernetes secret
+   kubectl create secret tls my-app-tls \
+     --cert=my-app.crt --key=my-app.key \
+     --dry-run=client -o yaml | kubectl apply -f -
+   ```
 
-**Scenario**: Automatically request and deploy certificates in deployment pipeline
+3. **Restart Application**:
+   ```bash
+   # Restart to pick up new certificate
+   kubectl rollout restart deployment my-app -n production
+   ```
 
-**Example: Azure DevOps Pipeline**
+#### Break-Glass Certificate Issuance
 
-```yaml
-trigger:
-  - main
+**When**: Emergency access needed for critical systems
 
-pool:
-  vmImage: 'ubuntu-latest'
-
-variables:
-  KEYFACTOR_API_URL: 'https://keyfactor.contoso.com/KeyfactorAPI'
-  KEYFACTOR_API_KEY: $(KeyfactorApiKey)  # Stored in Azure DevOps secrets
-
-steps:
-- task: Bash@3
-  displayName: 'Request Certificate from Keyfactor'
-  inputs:
-    targetType: 'inline'
-    script: |
-      # Generate CSR
-      openssl req -new -newkey rsa:2048 -nodes \
-        -keyout private-key.pem \
-        -out certificate.csr \
-        -subj "/CN=api.contoso.com/O=Contoso Inc"
-      
-      # Convert CSR to single line
-      CSR=$(cat certificate.csr | sed ':a;N;$!ba;s/\n/\\n/g')
-      
-      # Request certificate via API
-      curl -X POST $KEYFACTOR_API_URL/Certificates/Enroll \
-        -H "Authorization: Bearer $KEYFACTOR_API_KEY" \
-        -H "Content-Type: application/json" \
-        -d "{\"CSR\": \"$CSR\", \"Template\": \"TLS-Server-Internal\", \"CertificateAuthority\": \"Contoso-Enterprise-CA\"}" \
-        -o response.json
-      
-      # Extract certificate
-      cat response.json | jq -r '.Certificates[0]' > certificate.pem
-
-- task: AzureKeyVault@2
-  displayName: 'Upload Certificate to Key Vault'
-  inputs:
-    azureSubscription: 'Azure Subscription'
-    KeyVaultName: 'prod-keyvault'
-    SecretsFilter: '*'
-    RunAsPreJob: false
-
-- task: AzureCLI@2
-  displayName: 'Import Certificate'
-  inputs:
-    azureSubscription: 'Azure Subscription'
-    scriptType: 'bash'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      # Combine cert and key into PFX
-      openssl pkcs12 -export -out certificate.pfx \
-        -inkey private-key.pem \
-        -in certificate.pem \
-        -password pass:temppassword
-      
-      # Upload to Key Vault
-      az keyvault certificate import \
-        --vault-name prod-keyvault \
-        --name api-contoso-com \
-        --file certificate.pfx \
-        --password temppassword
-```
-
-### 5.2 HashiCorp Vault Integration
-
-**Scenario**: Store Keyfactor certificates in HashiCorp Vault for consumption by applications
-
-**Keyfactor Orchestrator** automatically syncs certificates to Vault (configured by platform team).
-
-**Retrieve Certificate from Vault**:
-
-```bash
-# Authenticate to Vault
-export VAULT_ADDR="https://vault.contoso.com:8200"
-export VAULT_TOKEN="your-vault-token"
-
-# Read certificate from Vault
-vault kv get secret/certs/api-contoso-com
-
-# Extract certificate and key
-vault kv get -field=certificate secret/certs/api-contoso-com > certificate.pem
-vault kv get -field=private_key secret/certs/api-contoso-com > private-key.pem
-```
-
-### 5.3 Monitoring Certificate Expiry
-
-**Set up monitoring** to avoid surprises:
-
-**Option 1: Keyfactor Dashboard**
-- Navigate to https://keyfactor.contoso.com
-- View "My Certificates"
-- Filter by "Expires in < 30 days"
-
-**Option 2: Email Alerts** (configured by platform team)
-- Receive email 30, 15, and 7 days before expiry
-- Automatic for all certificates you own
-
-**Option 3: Prometheus Metrics** (for DevOps teams)
-
-```yaml
-# Prometheus exporter for certificate expiry
-scrape_configs:
-  - job_name: 'certificate-exporter'
-    static_configs:
-      - targets: ['api.contoso.com:443']
-    metrics_path: /probe
-    params:
-      module: [https]
-```
+**Process**:
+1. **Contact PKI Team**: Call PKI emergency line
+2. **Provide Justification**: Explain emergency situation
+3. **Dual Approval**: Two PKI administrators approve
+4. **Manual Issuance**: Certificate issued manually
+5. **Post-Incident Review**: Document and review process
 
 ---
 
-## 6. Troubleshooting
+## Best Practices
 
-### 6.1 Common Issues
+### Certificate Request Best Practices
 
-#### Issue: "Access Denied - You do not own this hostname"
+1. **Use Descriptive Names**:
+   ```yaml
+   # Good
+   metadata:
+     name: web-app-prod-tls
+   
+   # Bad
+   metadata:
+     name: cert1
+   ```
 
-**Cause**: You're not listed as the owner in the asset inventory
+2. **Include All Required SANs**:
+   ```yaml
+   dnsNames:
+   - web-app.contoso.com
+   - api.web-app.contoso.com
+   - admin.web-app.contoso.com
+   - monitoring.web-app.contoso.com
+   ```
 
-**Solution**:
-1. Check asset inventory: https://cmdb.contoso.com (or CSV file)
-2. If incorrect, update owner to your email/team
-3. Wait 15 minutes for sync
-4. Retry certificate request
+3. **Set Appropriate Validity Period**:
+   ```yaml
+   duration: 8760h  # 1 year for external
+   duration: 17520h # 2 years for internal
+   ```
 
-**Quick Fix**: Contact #pki-support on Slack with hostname
+4. **Configure Early Renewal**:
+   ```yaml
+   renewBefore: 720h  # Renew 30 days before expiry
+   ```
+
+### Security Best Practices
+
+1. **Never Share Private Keys**:
+   - Private keys should never be shared between applications
+   - Use separate certificates for different environments
+   - Store private keys securely (HSM, Key Vault, Vault)
+
+2. **Use Strong Key Sizes**:
+   - RSA: Minimum 2048 bits, prefer 3072+ bits
+   - ECDSA: P-256 or P-384 curves
+   - Avoid weak algorithms (MD5, SHA-1)
+
+3. **Implement Certificate Pinning**:
+   ```python
+   import ssl
+   import requests
+   
+   # Certificate pinning for API calls
+   def create_pinned_session(cert_pem):
+       session = requests.Session()
+       session.verify = cert_pem
+       return session
+   ```
+
+4. **Monitor Certificate Health**:
+   ```python
+   # Monitor certificate expiry
+   import ssl
+   import socket
+   from datetime import datetime
+   
+   def check_cert_expiry(hostname, port=443):
+       context = ssl.create_default_context()
+       with socket.create_connection((hostname, port)) as sock:
+           with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+               cert = ssock.getpeercert()
+               expiry = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+               days_until_expiry = (expiry - datetime.now()).days
+               return days_until_expiry
+   ```
+
+### Operational Best Practices
+
+1. **Automate Everything**:
+   - Use Infrastructure as Code (IaC) for certificate requests
+   - Automate certificate deployment
+   - Implement health checks for certificate status
+
+2. **Document Certificate Usage**:
+   - Document which applications use which certificates
+   - Maintain certificate inventory
+   - Track certificate dependencies
+
+3. **Test Certificate Changes**:
+   - Test certificate renewal in non-production first
+   - Implement canary deployments for certificate updates
+   - Have rollback procedures ready
+
+4. **Monitor Certificate Metrics**:
+   - Track certificate expiry dates
+   - Monitor renewal success rates
+   - Alert on certificate-related issues
 
 ---
 
-#### Issue: "SAN Validation Failed - Domain not authorized"
+## Support and Resources
 
-**Cause**: The domain (e.g., `external.com`) is not in your allowed domains list
-
-**Solution**:
-1. Verify domain is correct (check for typos)
-2. If domain is correct, request access:
-   - Open ServiceNow ticket: Security → PKI Access Request
-   - Justify business need
-   - Approval from Security team required
-
-**Workaround**: Use an authorized domain if possible (e.g., `*.contoso.com`)
-
----
-
-#### Issue: "Certificate Enrollment Failed - No Response from CA"
-
-**Cause**: CA is offline or network issue
-
-**Solution**:
-1. Check Keyfactor status page: https://status.keyfactor.contoso.com
-2. Retry in 5-10 minutes
-3. If persistent, contact #pki-support
-
----
-
-#### Issue: "Certificate Not Renewing Automatically (ACME)"
-
-**Cause**: Certbot renewal timer not running or challenge failing
-
-**Solution**:
-
-```bash
-# Check certbot timer status
-sudo systemctl status certbot.timer
-
-# If not running, start it
-sudo systemctl enable certbot.timer
-sudo systemctl start certbot.timer
-
-# Test renewal manually
-sudo certbot renew --dry-run
-
-# Check logs for errors
-sudo journalctl -u certbot -n 50
-```
-
-**Common ACME renewal failures**:
-- **Port 80 blocked**: HTTP-01 challenge requires port 80 open
-- **DNS not resolving**: Verify hostname resolves to server IP
-- **Firewall blocking**: Check firewall allows inbound on port 80
-
----
-
-#### Issue: "Certificate Expired - Services Down!"
-
-**Cause**: Automatic renewal failed and wasn't caught
-
-**EMERGENCY PROCEDURE**:
-1. **Request new certificate immediately** using fastest method (API or portal)
-2. **Deploy certificate** to affected service
-3. **Restart service** to load new certificate
-4. **Notify #pki-support** of the incident for post-mortem
-
-**Prevention**:
-- Enable monitoring alerts
-- Review certificates expiring in next 30 days weekly
-- Test renewal process in non-production environments
-
----
-
-### 6.2 Getting Help
+### Getting Help
 
 **Self-Service Resources**:
-- **Documentation**: This guide and https://keyfactor.contoso.com/docs
-- **Status Page**: https://status.keyfactor.contoso.com
-- **FAQ**: [§ 8](#8-faq)
+- **Documentation**: This guide and related PKI documentation
+- **Knowledge Base**: Internal wiki with common scenarios
+- **Scripts**: Pre-built automation scripts in `/automation` directory
 
-**Contact Support**:
-| Channel | Response Time | Best For |
-|---------|--------------|----------|
-| **Slack: #pki-support** | < 2 hours (business hours) | Questions, troubleshooting |
-| **Email: pki-team@contoso.com** | < 4 hours (business hours) | Non-urgent requests |
-| **ServiceNow Ticket** | < 1 business day | Access requests, approvals |
-| **Emergency (Prod Down)** | Call: ext. 9999 | **Production outages only** |
+**Contact Information**:
+- **PKI Team**: pki-team@contoso.com
+- **Slack Channel**: #pki-support
+- **ServiceNow**: Create request → Security → PKI Support
+- **Emergency**: Call PKI emergency line (24/7)
 
----
+### Training and Certification
 
-## 7. Best Practices
+**Available Training**:
+- **PKI Fundamentals**: 2-hour online course
+- **Keyfactor Platform**: 4-hour hands-on workshop
+- **Certificate Automation**: 2-hour automation workshop
+- **Security Best Practices**: 1-hour security briefing
 
-### 7.1 Security
+**Certification Path**:
+- **PKI User**: Basic certificate management
+- **PKI Operator**: Advanced certificate operations
+- **PKI Administrator**: Full PKI administration
 
-✅ **DO**:
-- ✅ Use automated enrollment methods (ACME, cert-manager, GPO)
-- ✅ Rotate certificates regularly (even before expiry)
-- ✅ Use separate certificates per service (not shared)
-- ✅ Store private keys securely (Key Vault, Vault, or file with 600 permissions)
-- ✅ Revoke certificates immediately if private key compromised
-- ✅ Use strong key sizes (RSA 2048+ or ECC P-256+)
+### Useful Commands and Scripts
 
-❌ **DON'T**:
-- ❌ Share private keys between services
-- ❌ Commit private keys to Git repositories
-- ❌ Email private keys
-- ❌ Use weak key sizes (RSA 1024 or below)
-- ❌ Reuse old private keys after certificate expiry
-- ❌ Disable certificate validation in applications
-
-### 7.2 Operational
-
-✅ **DO**:
-- ✅ Tag certificates with owner and application metadata
-- ✅ Document where certificates are deployed
-- ✅ Test renewal process in dev/test environments
-- ✅ Monitor certificate expiry (30+ days notice)
-- ✅ Automate renewal and deployment where possible
-- ✅ Keep asset inventory up-to-date
-
-❌ **DON'T**:
-- ❌ Request certificates "just in case" (unused certificates are security risk)
-- ❌ Use overly long validity periods (> 1 year for servers)
-- ❌ Ignore expiry warnings
-- ❌ Skip testing after certificate replacement
-
-### 7.3 Certificate Hygiene
-
-**Weekly**:
-- Review certificates expiring in next 30 days
-- Verify automatic renewal is working
-
-**Monthly**:
-- Audit unused certificates (revoke if not needed)
-- Review certificate inventory for your applications
-- Update asset inventory if services changed
-
-**Quarterly**:
-- Review authorization (do you still own these hosts?)
-- Rotate long-lived certificates (code signing, etc.)
-
----
-
-## 8. FAQ
-
-### General
-
-**Q: How long does it take to get a certificate?**  
-A: Auto-approved templates: instant (< 30 seconds). Approval-required: 1-2 business days.
-
-**Q: How much does a certificate cost?**  
-A: Internal certificates are free (part of platform service). External/public certificates may have costs (contact PKI team).
-
-**Q: Can I use Let's Encrypt instead?**  
-A: For internal services: No, use Keyfactor. For public-facing services: Contact PKI team for guidance.
-
-**Q: What's the maximum certificate validity?**  
-A: Public certificates: 90 days (industry standard). Internal: 1-2 years depending on template.
-
-**Q: Can I request wildcard certificates (*.contoso.com)?**  
-A: Yes, but requires approval. Submit request via ServiceNow. Justify business need.
-
----
-
-### Technical
-
-**Q: What key size should I use?**  
-A: RSA 2048-bit or ECC P-256. RSA 4096 for code signing.
-
-**Q: Which certificate format should I download?**  
-A: **Linux/NGINX**: PEM. **Windows/IIS**: PFX. **Java**: JKS (convert from PFX).
-
-**Q: Do I need to include the CA chain?**  
-A: Yes, always include the full certificate chain for compatibility.
-
-**Q: Can I generate the private key on Keyfactor?**  
-A: For security, generate private keys on your own system and submit CSR. Exception: Windows GPO auto-enrollment.
-
-**Q: How do I convert between certificate formats?**  
-A: See [16-Glossary-References.md](./16-Glossary-References.md) Appendix B: Conversion Cheat Sheet
-
----
-
-### Troubleshooting
-
-**Q: My auto-renewal failed. What do I do?**  
-A: Check [§ 6.1](#61-common-issues) for troubleshooting steps. Contact #pki-support if unresolved.
-
-**Q: I accidentally deleted my private key. Can I recover it?**  
-A: No. Private keys are not stored by Keyfactor. Request a new certificate.
-
-**Q: Can I renew a certificate before it expires?**  
-A: Yes. Request a new certificate anytime. Deploy the new one and revoke the old one after successful cutover.
-
-**Q: My certificate expired and services are down. Help!**  
-A: See [§ 6.1 Emergency Procedure](#61-common-issues) - "Certificate Expired - Services Down!"
-
----
-
-## Appendix A: Quick Reference Commands
-
-### Check Certificate Expiry
+**Certificate Validation Script**:
 ```bash
-# Linux
-openssl x509 -in certificate.pem -noout -enddate
+#!/bin/bash
+# validate-certificate.sh
+# Validates certificate configuration and connectivity
 
-# Check if expires in < 30 days
-openssl x509 -in certificate.pem -noout -checkend 2592000
+DOMAIN=$1
+if [ -z "$DOMAIN" ]; then
+    echo "Usage: $0 <domain>"
+    exit 1
+fi
+
+echo "Validating certificate for $DOMAIN..."
+
+# Check certificate expiry
+echo "Certificate expiry:"
+echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -dates
+
+# Check certificate chain
+echo "Certificate chain:"
+echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -issuer -subject
+
+# Check SANs
+echo "Subject Alternative Names:"
+echo | openssl s_client -servername $DOMAIN -connect $DOMAIN:443 2>/dev/null | openssl x509 -noout -text | grep -A 1 "Subject Alternative Name"
 ```
 
-### Generate CSR
-```bash
-openssl req -new -newkey rsa:2048 -nodes \
-  -keyout private-key.pem \
-  -out certificate.csr \
-  -subj "/CN=api.contoso.com/O=Contoso Inc"
-```
+**Certificate Renewal Check**:
+```python
+#!/usr/bin/env python3
+# check-cert-renewal.py
+# Check if certificates need renewal
 
-### Convert Certificate Formats
-```bash
-# PEM to PFX
-openssl pkcs12 -export -out cert.pfx -inkey key.pem -in cert.pem
+import ssl
+import socket
+from datetime import datetime, timedelta
+import json
 
-# PFX to PEM
-openssl pkcs12 -in cert.pfx -out cert.pem -nodes
-```
+def check_cert_expiry(hostname, port=443):
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((hostname, port), timeout=10) as sock:
+            with context.wrap_socket(sock, server_hostname=hostname) as ssock:
+                cert = ssock.getpeercert()
+                expiry = datetime.strptime(cert['notAfter'], '%b %d %H:%M:%S %Y %Z')
+                days_until_expiry = (expiry - datetime.now()).days
+                return {
+                    'hostname': hostname,
+                    'expiry_date': expiry.isoformat(),
+                    'days_until_expiry': days_until_expiry,
+                    'needs_renewal': days_until_expiry < 30,
+                    'status': 'OK' if days_until_expiry > 30 else 'WARNING' if days_until_expiry > 0 else 'CRITICAL'
+                }
+    except Exception as e:
+        return {
+            'hostname': hostname,
+            'error': str(e),
+            'status': 'ERROR'
+        }
 
-### View Certificate Details
-```bash
-openssl x509 -in certificate.pem -text -noout
+# Check multiple domains
+domains = [
+    'web-app.contoso.com',
+    'api.contoso.com',
+    'admin.contoso.com'
+]
+
+results = []
+for domain in domains:
+    result = check_cert_expiry(domain)
+    results.append(result)
+    print(f"{domain}: {result['status']} ({result.get('days_until_expiry', 'N/A')} days)")
+
+# Output JSON for monitoring systems
+print(json.dumps(results, indent=2))
 ```
 
 ---
 
-## Appendix B: Contact Information
+## Appendix
 
-**PKI Team**:
-- **Slack**: #pki-support
-- **Email**: pki-team@contoso.com
-- **ServiceNow**: Security → PKI Support
-- **Emergency**: ext. 9999 (production outages only)
+### Certificate Template Details
 
-**Documentation**:
-- **This Guide**: https://docs.contoso.com/pki/service-owner-guide
-- **Full Documentation**: https://github.com/contoso/pki-docs
-- **Keyfactor Portal**: https://keyfactor.contoso.com
+**TLS-Server-Internal**:
+- **Purpose**: Internal web services and APIs
+- **Validity**: 2 years
+- **Key Size**: RSA 2048+ or ECDSA P-256
+- **SAN Support**: Yes
+- **Approval**: Automatic
+- **Use Cases**: Internal APIs, microservices, development environments
+
+**TLS-Server-External**:
+- **Purpose**: Public-facing web services
+- **Validity**: 1 year
+- **Key Size**: RSA 2048+ or ECDSA P-256
+- **SAN Support**: Yes
+- **Approval**: Automatic
+- **Use Cases**: Public websites, external APIs, customer-facing services
+
+**Code-Signing**:
+- **Purpose**: Application and code signing
+- **Validity**: 3 years
+- **Key Size**: RSA 4096
+- **SAN Support**: No
+- **Approval**: Manual (requires PKI admin approval)
+- **Use Cases**: Application signing, driver signing, firmware signing
+
+### Domain Pattern Examples
+
+**Authorized Patterns**:
+- `*.contoso.com` - All subdomains
+- `*.dev.contoso.com` - Development subdomains
+- `*.staging.contoso.com` - Staging subdomains
+- `*.prod.contoso.com` - Production subdomains
+- `api.contoso.com` - Specific API domain
+- `admin.contoso.com` - Specific admin domain
+
+**Unauthorized Patterns**:
+- `*.external.com` - External domains not authorized
+- `*.competitor.com` - Competitor domains
+- `root.contoso.com` - Root domain (use specific subdomain)
+
+### Error Codes and Messages
+
+| Error Code | Message | Solution |
+|------------|---------|----------|
+| **AUTH-001** | "User not authorized for certificate template" | Request access to appropriate AD group |
+| **AUTH-002** | "Domain not authorized for user role" | Use authorized domain pattern |
+| **AUTH-003** | "Asset ownership verification failed" | Verify server ownership in CMDB |
+| **AUTH-004** | "Certificate template requires manual approval" | Wait for PKI admin approval |
+| **RENEW-001** | "Automatic renewal failed" | Check webhook connectivity and logs |
+| **RENEW-002** | "Certificate deployment failed" | Check application configuration |
+| **RENEW-003** | "Service reload failed" | Check service configuration and permissions |
 
 ---
 
-## Document Maintenance
-
-**Review Schedule**: Quarterly or when processes change  
-**Owner**: PKI Team  
-**Last Reviewed**: October 23, 2025  
-**Next Review**: January 23, 2026
-
-**Feedback**: Please submit feedback or questions to #pki-support
+**Last Updated**: October 23, 2025  
+**Version**: 1.0  
+**Status**: ✅ Complete - Ready for Service Owner Use
 
 ---
 
-**Happy certificate management! Remember: Automate everything, monitor proactively, and don't wait until the last minute to renew. 🎉**
-
----
-
-*For questions or feedback, contact: adrian207@gmail.com or #pki-support on Slack*
-
-**End of Service Owner Guide**
-
+*This guide provides everything service owners need to successfully manage certificates in the Keyfactor PKI environment. For additional support, contact the PKI team at pki-team@contoso.com.*
