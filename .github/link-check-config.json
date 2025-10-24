@@ -1,0 +1,46 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https://github.com/.*"
+    },
+    {
+      "pattern": "^https://docs.microsoft.com/.*"
+    },
+    {
+      "pattern": "^https://learn.microsoft.com/.*"
+    },
+    {
+      "pattern": "^https://software.keyfactor.com/.*"
+    },
+    {
+      "pattern": "^https://doc.primekey.com/.*"
+    },
+    {
+      "pattern": "^https://cert-manager.io/.*"
+    },
+    {
+      "pattern": "^https://www.githubstatus.com/.*"
+    },
+    {
+      "pattern": "^https://docs.github.com/.*"
+    }
+  ],
+  "replacementPatterns": [
+    {
+      "pattern": "^/",
+      "replacement": "https://github.com/adrian207/Kube-Terra-EJBCA/blob/master/"
+    }
+  ],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com"],
+      "headers": {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      }
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "1000ms"
+}

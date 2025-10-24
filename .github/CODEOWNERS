@@ -1,0 +1,39 @@
+# Code Owners for Keyfactor PKI Documentation Repository
+# This file defines who has review rights for different parts of the repository
+
+# Global owners - all files
+* @adrian207
+
+# Core documentation files
+/01-Executive-Design-Document.md @adrian207
+/02-RBAC-Authorization-Framework.md @adrian207
+/03-Policy-Catalog.md @adrian207
+/04-Architecture-Diagrams.md @adrian207
+
+# Security and compliance documentation
+/11-Security-Controls.md @adrian207
+/12-Compliance-Mapping.md @adrian207
+/13-Threat-Model.md @adrian207
+
+# Architecture decision records
+/17-Architecture-Decision-Records.md @adrian207
+
+# Financial and business documentation
+/22-Cost-Analysis.md @adrian207
+/20-Vendor-Evaluation-Criteria.md @adrian207
+
+# Implementation and operational documentation
+/05-Implementation-Runbooks.md @adrian207
+/06-Automation-Playbooks.md @adrian207
+/08-Operations-Manual.md @adrian207
+/09-Monitoring-KPIs.md @adrian207
+/10-Incident-Response-Procedures.md @adrian207
+
+# Automation scripts
+/automation/ @adrian207
+/scripts/ @adrian207
+
+# Configuration files
+/.github/ @adrian207
+/README.md @adrian207
+/00-DOCUMENT-INDEX.md @adrian207

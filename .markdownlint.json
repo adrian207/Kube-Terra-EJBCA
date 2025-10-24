@@ -1,0 +1,77 @@
+# Markdownlint Configuration
+# This file configures markdownlint rules for the repository
+
+# Enable all rules by default
+default: true
+
+# Customize specific rules
+MD013:
+  line_length: 120
+  code_blocks: false
+  tables: false
+  headings: false
+
+MD024:
+  siblings_only: true
+
+MD033:
+  allowed_elements:
+    - br
+    - hr
+    - img
+    - table
+    - thead
+    - tbody
+    - tr
+    - th
+    - td
+    - div
+    - span
+    - details
+    - summary
+
+MD041:
+  front_matter_title: ""
+
+MD029:
+  style: "ordered"
+
+MD007:
+  indent: 2
+
+MD012:
+  maximum: 1
+
+MD022:
+  blank_lines_around_fenced_code: true
+
+MD031:
+  list_items: true
+
+MD032:
+  list_items: true
+
+MD036:
+  punctuation: ".,;:!"
+
+MD040:
+  allowed_languages:
+    - bash
+    - shell
+    - powershell
+    - python
+    - go
+    - javascript
+    - typescript
+    - json
+    - yaml
+    - xml
+    - html
+    - css
+    - sql
+    - dockerfile
+    - terraform
+    - hcl
+    - markdown
+    - text
+    - plaintext

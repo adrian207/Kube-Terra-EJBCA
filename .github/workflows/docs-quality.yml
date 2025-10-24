@@ -1,0 +1,178 @@
+name: Documentation Quality Checks
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  markdown-lint:
+    name: Markdown Linting
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install markdownlint
+      run: npm install -g markdownlint-cli
+    
+    - name: Run markdownlint
+      run: markdownlint "**/*.md" --ignore node_modules
+
+  link-check:
+    name: Link Validation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install markdown-link-check
+      run: npm install -g markdown-link-check
+    
+    - name: Check links in markdown files
+      run: |
+        find . -name "*.md" -not -path "./node_modules/*" -not -path "./.git/*" | while read file; do
+          echo "Checking links in $file"
+          markdown-link-check "$file" --config .github/link-check-config.json
+        done
+
+  spell-check:
+    name: Spell Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+    
+    - name: Install cspell
+      run: npm install -g cspell
+    
+    - name: Run spell check
+      run: cspell "**/*.md" --config .github/cspell.json
+
+  file-size-check:
+    name: File Size Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check file sizes
+      run: |
+        echo "Checking for large files..."
+        find . -name "*.md" -size +1M -exec echo "Large file found: {}" \; -exec ls -lh {} \;
+        find . -name "*.md" -size +1M | wc -l | xargs -I {} test {} -eq 0 || exit 1
+
+  structure-check:
+    name: Documentation Structure Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check required files exist
+      run: |
+        echo "Checking required documentation files..."
+        required_files=(
+          "README.md"
+          "00-DOCUMENT-INDEX.md"
+          "01-Executive-Design-Document.md"
+          "02-RBAC-Authorization-Framework.md"
+          "03-Policy-Catalog.md"
+          "04-Architecture-Diagrams.md"
+          "05-Implementation-Runbooks.md"
+          "06-Automation-Playbooks.md"
+          "07-Enrollment-Rails-Guide.md"
+          "08-Operations-Manual.md"
+          "09-Monitoring-KPIs.md"
+          "10-Incident-Response-Procedures.md"
+          "11-Security-Controls.md"
+          "12-Compliance-Mapping.md"
+          "13-Threat-Model.md"
+          "14-Integration-Specifications.md"
+          "15-Testing-Validation.md"
+          "16-Glossary-References.md"
+          "17-Architecture-Decision-Records.md"
+          "18-Quick-Start-First-Sprint.md"
+          "19-Service-Owner-Guide.md"
+          "20-Vendor-Evaluation-Criteria.md"
+          "21-Migration-Strategy.md"
+          "22-Cost-Analysis.md"
+        )
+        
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "Missing required file: $file"
+            exit 1
+          fi
+        done
+        
+        echo "All required files present!"
+
+  automation-scripts-check:
+    name: Automation Scripts Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check automation scripts exist
+      run: |
+        echo "Checking automation scripts..."
+        required_scripts=(
+          "automation/webhooks/webhook-receiver.py"
+          "automation/webhooks/webhook-receiver.go"
+          "automation/webhooks/azure-function-webhook.ps1"
+          "automation/renewal/auto-renew.py"
+          "automation/renewal/auto-renew.ps1"
+          "automation/renewal/auto-renew.go"
+          "automation/monitoring/monitor-expiry.py"
+          "automation/monitoring/monitor-expiry.ps1"
+          "automation/monitoring/monitor-expiry.go"
+          "scripts/validate-device.py"
+          "scripts/validate-device.ps1"
+          "scripts/validate-device.go"
+          "scripts/validate-device.sh"
+        )
+        
+        for script in "${required_scripts[@]}"; do
+          if [ ! -f "$script" ]; then
+            echo "Missing required script: $script"
+            exit 1
+          fi
+        done
+        
+        echo "All required scripts present!"
+
+  security-check:
+    name: Security Check
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Check for sensitive information
+      run: |
+        echo "Checking for potential sensitive information..."
+        
+        # Check for potential API keys, passwords, or secrets
+        if grep -r -i "password\|secret\|key\|token" --include="*.md" --include="*.py" --include="*.ps1" --include="*.go" --include="*.sh" . | grep -v "example\|template\|placeholder"; then
+          echo "Potential sensitive information found. Please review."
+          exit 1
+        fi
+        
+        # Check for hardcoded URLs that might contain sensitive info
+        if grep -r "https://.*\.contoso\.com" --include="*.md" --include="*.py" --include="*.ps1" --include="*.go" --include="*.sh" . | grep -v "example\|template"; then
+          echo "Potential hardcoded URLs found. Please review."
+          exit 1
+        fi
+        
+        echo "Security check passed!"
